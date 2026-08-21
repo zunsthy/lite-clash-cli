@@ -1,0 +1,35 @@
+# Go
+go.sum
+
+# Build output
+/bin/
+/dist/
+/lite-clash
+*.test
+*.out
+*.prof
+coverage.*
+
+# Local configuration and credentials
+/config.yaml
+/config.yml
+/test-config.yaml
+/test-config.yml
+*.local.yaml
+*.local.yml
+.env
+.env.local
+*.pem
+*.key
+*.p12
+
+# Local tools and editors
+/.agents/
+/.codex/
+/.idea/
+/.vscode/
+*.swp
+*.swo
+
+# Operating system files
+.DS_Store
