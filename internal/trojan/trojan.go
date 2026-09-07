@@ -25,6 +25,14 @@ const (
 
 var DefaultALPN = []string{"h2", "http/1.1"}
 
+var dnsRetryDelays = [...]time.Duration{
+	250 * time.Millisecond,
+	750 * time.Millisecond,
+	1500 * time.Millisecond,
+}
+
+type dialContextFunc func(context.Context, string, string) (net.Conn, error)
+
 type Config struct {
 	Name           string         `yaml:"name"`
 	Server         string         `yaml:"server"`
@@ -74,7 +82,8 @@ func (d Dialer) dial(ctx context.Context, command byte, target []byte) (_ net.Co
 	}
 
 	serverAddress := net.JoinHostPort(d.config.Server, strconv.Itoa(d.config.Port))
-	rawConn, err := (&net.Dialer{KeepAlive: 30 * time.Second}).DialContext(ctx, "tcp", serverAddress)
+	dialer := &net.Dialer{KeepAlive: 30 * time.Second}
+	rawConn, err := dialWithDNSRetry(ctx, dialer.DialContext, serverAddress, dnsRetryDelays[:])
 	if err != nil {
 		return nil, fmt.Errorf("connect to Trojan server %s: %w", serverAddress, err)
 	}
@@ -99,6 +108,28 @@ func (d Dialer) dial(ctx context.Context, command byte, target []byte) (_ net.Co
 		return nil, fmt.Errorf("write Trojan request header: %w", err)
 	}
 	return tlsConn, nil
+}
+
+func dialWithDNSRetry(ctx context.Context, dial dialContextFunc, address string, retryDelays []time.Duration) (net.Conn, error) {
+	for attempt := 0; ; attempt++ {
+		conn, err := dial(ctx, "tcp", address)
+		if err == nil || !isNameNotFound(err) || attempt == len(retryDelays) {
+			return conn, err
+		}
+
+		timer := time.NewTimer(retryDelays[attempt])
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		}
+	}
+}
+
+func isNameNotFound(err error) bool {
+	var dnsError *net.DNSError
+	return errors.As(err, &dnsError) && dnsError.IsNotFound
 }
 
 func makeTrojanHeader(password string, command byte, target []byte) []byte {
